@@ -50,7 +50,7 @@ check_android_version() {
 }
 
 check_incompatible_module() {
-  MODULEDIR="/data/adb/modules"
+  MODULEDIR="$(magisk --path)/.magisk/modules"
   for id in "riru_dreamland" "riru_edxposed" "riru_edxposed_sandhook" "taichi"; do
     if [ -d "$MODULEDIR/$id" ] && [ ! -f "$MODULEDIR/$id/disable" ] && [ ! -f "$MODULEDIR/$id/remove" ]; then
       ui_print "*********************************************************"
