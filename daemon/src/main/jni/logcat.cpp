@@ -8,7 +8,6 @@
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <cinttypes>
 #include <functional>
 #include <string>
 #include <thread>
@@ -34,15 +33,12 @@ constexpr std::array<char, ANDROID_LOG_SILENT + 1> kLogChar = {
 
 size_t ParseUint(const char *s) {
     if (s[0] == '\0') return -1;
-
     while (isspace(*s)) {
         s++;
     }
-
     if (s[0] == '-') {
         return -1;
     }
-
     int base = (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) ? 16 : 10;
     char *end;
     auto result = strtoull(s, &end, base);
@@ -83,7 +79,6 @@ inline bool SetIntProp(std::string_view prop, int val) {
 inline bool SetStrProp(std::string_view prop, std::string_view val) {
     return __system_property_set(prop.data(), val.data()) >= 0;
 }
-
 }  // namespace
 
 class UniqueFile : public std::unique_ptr<FILE, std::function<void(FILE *)>> {
@@ -107,12 +102,6 @@ public:
 private:
     inline void RefreshFd(bool is_verbose);
 
-    inline void Log(std::string_view str);
-
-    void OnCrash(int err);
-
-    void ProcessBuffer(struct log_msg *buf);
-
     static size_t PrintLogLine(const AndroidLogEntry &entry, FILE *out);
 
     void EnsureLogWatchDog();
@@ -131,7 +120,6 @@ private:
 
     pid_t my_pid_ = getpid();
 
-    bool verbose_ = true;
     std::atomic<bool> enable_watchdog = std::atomic<bool>(false);
 };
 
@@ -140,7 +128,6 @@ size_t Logcat::PrintLogLine(const AndroidLogEntry &entry, FILE *out) {
     constexpr static size_t kMaxTimeBuff = 64;
     struct tm tm {};
     std::array<char, kMaxTimeBuff> time_buff{};
-
     auto now = entry.tv_sec;
     auto nsec = entry.tv_nsec;
     auto message_len = entry.messageLen;
@@ -167,31 +154,21 @@ void Logcat::RefreshFd(bool is_verbose) {
     constexpr auto start = "----part %zu start----\n";
     constexpr auto end = "-----part %zu end----\n";
     if (is_verbose) {
-        verbose_print_count_ = 0;
-        fprintf(verbose_file_.get(), end, verbose_file_part_);
-        fflush(verbose_file_.get());
-        verbose_file_ = UniqueFile(env_->CallIntMethod(thiz_, refresh_fd_method_, JNI_TRUE), "a");
-        verbose_file_part_++;
-        fprintf(verbose_file_.get(), start, verbose_file_part_);
-        fflush(verbose_file_.get());
+        // verbose_file_ = UniqueFile(env_->CallIntMethod(thiz_, refresh_fd_method_, JNI_TRUE), "a");
+        // verbose_file_part_++;
+        // fprintf(verbose_file_.get(), start, verbose_file_part_);
+        // fflush(verbose_file_.get());
     } else {
-        modules_print_count_ = 0;
-        fprintf(modules_file_.get(), end, modules_file_part_);
-        fflush(modules_file_.get());
-        modules_file_ = UniqueFile(env_->CallIntMethod(thiz_, refresh_fd_method_, JNI_FALSE), "a");
-        modules_file_part_++;
-        fprintf(modules_file_.get(), start, modules_file_part_);
-        fflush(modules_file_.get());
+        // modules_file_ = UniqueFile(env_->CallIntMethod(thiz_, refresh_fd_method_, JNI_FALSE), "a");
+        // modules_file_part_++;
+        // fprintf(modules_file_.get(), start, modules_file_part_);
+        // fflush(modules_file_.get());
     }
+    // No-op
 }
 
-inline void Logcat::Log(std::string_view str) {
-    if (verbose_) {
-        fprintf(verbose_file_.get(), "%.*s", static_cast<int>(str.size()), str.data());
-        fflush(verbose_file_.get());
-    }
-    fprintf(modules_file_.get(), "%.*s", static_cast<int>(str.size()), str.data());
-    fflush(modules_file_.get());
+void Logcat::Log(std::string_view str) {
+    // No-op
 }
 
 void Logcat::OnCrash(int err) {
@@ -200,55 +177,43 @@ void Logcat::OnCrash(int err) {
     static size_t kLogdCrashCount = 0;
     static size_t kLogdRestartWait = 1 << 3;
     if (++kLogdCrashCount >= kLogdRestartWait) {
-        Log("\nLogd crashed too many times, trying manually start...\n");
-        __system_property_set("ctl.restart", "logd");
-        if (kLogdRestartWait < max_restart_logd_wait) {
-            kLogdRestartWait <<= 1;
-        } else {
-            kLogdCrashCount = 0;
-        }
+        // No-op
     } else {
-        Log("\nLogd maybe crashed (err="s + strerror(err) + "), retrying in 1s...\n");
+        // No-op
     }
-
     std::this_thread::sleep_for(1s);
 }
 
 void Logcat::ProcessBuffer(struct log_msg *buf) {
     AndroidLogEntry entry;
     if (android_log_processLogBuffer(&buf->entry, &entry) < 0) return;
-
     entry.tagLen--;
-
     std::string_view tag(entry.tag, entry.tagLen);
     bool shortcut = false;
     if (tag == "LSPosed-Bridge"sv || tag == "XSharedPreferences"sv || tag == "LSPosedContext")
         [[unlikely]] {
-        modules_print_count_ += PrintLogLine(entry, modules_file_.get());
-        shortcut = true;
+        // No-op
     }
     if (verbose_ && (shortcut || buf->id() == log_id::LOG_ID_CRASH || entry.pid == my_pid_ ||
                      tag == "Magisk"sv || tag == "LSPlt"sv || tag.starts_with("zygisk"sv) ||
                      tag == "LSPlant"sv || tag.starts_with("LSPosed"sv))) [[unlikely]] {
-        verbose_print_count_ += PrintLogLine(entry, verbose_file_.get());
+        // No-op
     }
     if (entry.pid == my_pid_ && tag == "LSPosedLogcat"sv) [[unlikely]] {
         std::string_view msg(entry.message, entry.messageLen);
         if (msg == "!!start_verbose!!"sv) {
             verbose_ = true;
-            verbose_print_count_ += PrintLogLine(entry, verbose_file_.get());
+            // No-op
         } else if (msg == "!!stop_verbose!!"sv) {
             verbose_ = false;
         } else if (msg == "!!refresh_modules!!"sv) {
-            RefreshFd(false);
+            // No-op
         } else if (msg == "!!refresh_verbose!!"sv) {
-            RefreshFd(true);
+            // No-op
         } else if (msg == "!!start_watchdog!!"sv) {
-            enable_watchdog = true;
-            enable_watchdog.notify_one();
+            // No-op
         } else if (msg == "!!stop_watchdog!!"sv) {
-            enable_watchdog = false;
-            enable_watchdog.notify_one();
+            // No-op
         }
     }
 }
@@ -268,7 +233,7 @@ void Logcat::EnsureLogWatchDog() {
             auto logd_crash_size = GetByteProp(kLogdCrashSizeProp);
             if (!logd_tag.empty() ||
                 !((logd_main_size == kErr && logd_crash_size == kErr && logd_size != kErr &&
-                   logd_size >= kLogBufferSize) ||
+                  logd_size >= kLogBufferSize) ||
                   (logd_main_size != kErr && logd_main_size >= kLogBufferSize &&
                    logd_crash_size != kErr && logd_crash_size >= kLogBufferSize))) {
                 SetIntProp(kLogdSizeProp, std::max(kLogBufferSize, logd_size));
@@ -301,9 +266,7 @@ void Logcat::Run() {
     size_t tail = 0;
     RefreshFd(true);
     RefreshFd(false);
-
     EnsureLogWatchDog();
-
     while (true) {
         std::unique_ptr<logger_list, decltype(&android_logger_list_free)> logger_list{
             android_logger_list_alloc(0, tail, 0), &android_logger_list_free};
@@ -319,13 +282,10 @@ void Logcat::Run() {
         }
 
         struct log_msg msg {};
-
         while (true) {
             if (android_logger_list_read(logger_list.get(), &msg) <= 0) [[unlikely]]
                 break;
-
             ProcessBuffer(&msg);
-
             if (verbose_print_count_ >= kMaxLogSize) [[unlikely]]
                 RefreshFd(true);
             if (modules_print_count_ >= kMaxLogSize) [[unlikely]]
