@@ -1,14 +1,12 @@
+cmake_minimum_required(VERSION 3.8)
 project(lspd)
-cmake_minimum_required(VERSION 3.4.1)
 
 add_subdirectory(${CORE_ROOT} core)
 
 configure_file(template/loader.cpp src/loader.cpp)
 
 aux_source_directory(src SRC_LIST)
-if (${API} STREQUAL "riru")
-    set(SRC_LIST ${SRC_LIST} api/riru_main.cpp)
-elseif (${API} STREQUAL "zygisk")
+if (${API} STREQUAL "zygisk")
     set(SRC_LIST ${SRC_LIST} api/zygisk_main.cpp)
 endif()
 
@@ -17,7 +15,7 @@ add_library(${PROJECT_NAME} SHARED ${SRC_LIST} ${CMAKE_CURRENT_BINARY_DIR}/src/l
 target_include_directories(${PROJECT_NAME} PUBLIC include)
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 
-target_link_libraries(${PROJECT_NAME} core log)
+target_link_libraries(${PROJECT_NAME} core log android)
 
 if (DEFINED DEBUG_SYMBOLS_PATH)
     set(DEBUG_SYMBOLS_PATH ${DEBUG_SYMBOLS_PATH}/${API})

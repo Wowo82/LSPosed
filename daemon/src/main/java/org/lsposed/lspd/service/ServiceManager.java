@@ -95,9 +95,7 @@ public class ServiceManager {
 
         int systemServerMaxRetry = 1;
         for (String arg : args) {
-            if (arg.equals("--from-service")) {
-                Log.w(TAG, "LSPosed daemon is not started properly. Try for a late start...");
-            } else if (arg.startsWith("--system-server-max-retry=")) {
+            if (arg.startsWith("--system-server-max-retry=")) {
                 try {
                     systemServerMaxRetry = Integer.parseInt(arg.substring(arg.lastIndexOf('=') + 1));
                 } catch (Throwable ignored) {
@@ -114,6 +112,15 @@ public class ServiceManager {
 
         logcatService = new LogcatService();
         logcatService.start();
+
+        // get config before package service is started
+        // otherwise getInstance will trigger module/scope cache
+        var configManager = ConfigManager.getInstance();
+        // --- DO NOT call ConfigManager.getInstance later!!! ---
+
+        // Unblock log watchdog before starting anything else
+        if (configManager.isLogWatchdogEnabled())
+            logcatService.enableWatchdog();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
             permissionManagerWorkaround();
@@ -132,11 +139,6 @@ public class ServiceManager {
         }
 
         systemServerService.putBinderForSystemServer();
-
-        // get config before package service is started
-        // otherwise getInstance will trigger module/scope cache
-        var configManager = ConfigManager.getInstance();
-        // --- DO NOT call ConfigManager.getInstance later!!! ---
 
         ActivityThread.systemMain();
 

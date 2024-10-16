@@ -160,6 +160,13 @@ public class SettingsFragment extends BaseFragment {
                 prefVerboseLogs.setOnPreferenceChangeListener((preference, newValue) -> ConfigManager.setVerboseLogEnabled(!(boolean) newValue));
             }
 
+            MaterialSwitchPreference prefEnableLog = findPreference("enable_log_watchdog");
+            if (prefEnableLog != null) {
+                prefEnableLog.setEnabled(!BuildConfig.DEBUG && installed);
+                prefEnableLog.setChecked(!installed || ConfigManager.isLogWatchdogEnabled());
+                prefEnableLog.setOnPreferenceChangeListener((preference, newValue) -> ConfigManager.setLogWatchdog((boolean) newValue));
+            }
+
             MaterialSwitchPreference prefDexObfuscate = findPreference("enable_dex_obfuscate");
             if (prefDexObfuscate != null) {
                 prefDexObfuscate.setEnabled(installed);
@@ -347,7 +354,7 @@ public class SettingsFragment extends BaseFragment {
             Preference translation = findPreference("translation");
             if (translation != null) {
                 translation.setOnPreferenceClickListener(preference -> {
-                    NavUtil.startURL(requireActivity(), "https://lsposed.crowdin.com/lsposed");
+                    NavUtil.startURL(requireActivity(), "https://crowdin.com/project/lsposed_jingmatrix");
                     return true;
                 });
                 translation.setSummary(getString(R.string.settings_translation_summary, getString(R.string.app_name)));

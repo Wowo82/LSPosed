@@ -35,7 +35,8 @@ cmaker {
             arrayOf(
                 "-DEXTERNAL_ROOT=${File(rootDir.absolutePath, "external")}",
                 "-DCORE_ROOT=${File(rootDir.absolutePath, "core/src/main/jni")}",
-                "-DANDROID_STL=none"
+                "-DANDROID_STL=none",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
             )
         )
         val flags = arrayOf(
@@ -66,13 +67,13 @@ val injectedPackageUid by extra(2000)
 val defaultManagerPackageName by extra("org.lsposed.manager")
 val verCode by extra(commitCount)
 val verName by extra(latestTag)
-val androidTargetSdkVersion by extra(34)
+val androidTargetSdkVersion by extra(35)
 val androidMinSdkVersion by extra(27)
-val androidBuildToolsVersion by extra("34.0.0")
-val androidCompileSdkVersion by extra(34)
-val androidCompileNdkVersion by extra("26.1.10909125")
-val androidSourceCompatibility by extra(JavaVersion.VERSION_17)
-val androidTargetCompatibility by extra(JavaVersion.VERSION_17)
+val androidBuildToolsVersion by extra("35.0.0")
+val androidCompileSdkVersion by extra(35)
+val androidCompileNdkVersion by extra("27.1.12297006")
+val androidSourceCompatibility by extra(JavaVersion.VERSION_21)
+val androidTargetCompatibility by extra(JavaVersion.VERSION_21)
 
 tasks.register("Delete", Delete::class) {
     delete(rootProject.layout.buildDirectory)
@@ -87,7 +88,8 @@ subprojects {
 
             externalNativeBuild {
                 cmake {
-                    version = "3.22.1+"
+                    version = "3.29.8+"
+                    buildStagingDirectory = layout.buildDirectory.get().asFile
                 }
             }
 

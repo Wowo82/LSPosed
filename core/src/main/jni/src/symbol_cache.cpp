@@ -24,7 +24,6 @@
 
 #include "symbol_cache.h"
 #include "elf_util.h"
-#include <dobby.h>
 #include "macros.h"
 #include "config.h"
 #include <vector>
@@ -39,5 +38,25 @@ namespace lspd {
             kArtImg = std::make_unique<SandHook::ElfImg>(kLibArtName);
         }
         return kArtImg;
+    }
+
+    std::unique_ptr<const SandHook::ElfImg> &GetLibBinder(bool release) {
+        static std::unique_ptr<const SandHook::ElfImg> kImg = nullptr;
+        if (release) {
+            kImg.reset();
+        } else if (!kImg) {
+            kImg = std::make_unique<SandHook::ElfImg>(kLibBinderName);
+        }
+        return kImg;
+    }
+
+    std::unique_ptr<const SandHook::ElfImg> &GetLinker(bool release) {
+        static std::unique_ptr<const SandHook::ElfImg> kImg = nullptr;
+        if (release) {
+            kImg.reset();
+        } else if (!kImg) {
+            kImg = std::make_unique<SandHook::ElfImg>(kLinkerName);
+        }
+        return kImg;
     }
 }  // namespace lspd
