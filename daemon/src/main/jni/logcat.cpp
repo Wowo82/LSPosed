@@ -200,8 +200,8 @@ void Logcat::OnCrash(int err) {
     static size_t kLogdCrashCount = 0;
     static size_t kLogdRestartWait = 1 << 3;
     if (++kLogdCrashCount >= kLogdRestartWait) {
-        Log("\nLogd crashed too many times, trying manually start...\n");
-        __system_property_set("ctl.restart", "logd");
+       // Log("\nLogd crashed too many times, trying manually start...\n");
+       // __system_property_set("ctl.restart", "logd");
         if (kLogdRestartWait < max_restart_logd_wait) {
             kLogdRestartWait <<= 1;
         } else {
