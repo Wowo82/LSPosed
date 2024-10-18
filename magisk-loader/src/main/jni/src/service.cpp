@@ -21,8 +21,8 @@
 // Created by loves on 2/7/2021.
 //
 
-#include <dobby.h>
 #include <thread>
+#include <atomic>
 #include "loader.h"
 #include "service.h"
 #include "context.h"
@@ -35,6 +35,50 @@ using namespace lsplant;
 
 namespace lspd {
     std::unique_ptr<Service> Service::instance_ = std::make_unique<Service>();
+
+    std::atomic<uint64_t> last_failed_id = ~0;
+
+    class IPCThreadState {
+        static IPCThreadState* (*selfOrNullFn)();
+        static pid_t (*getCallingPidFn)(IPCThreadState*);
+        static uid_t (*getCallingUidFn)(IPCThreadState*);
+
+    public:
+
+        uint64_t getCallingId() {
+            if (getCallingUidFn != nullptr && getCallingPidFn != nullptr) [[likely]] {
+                auto pid = getCallingUidFn(this);
+                auto uid = getCallingPidFn(this);
+                return (static_cast<uint64_t>(uid) << 32) | pid;
+            }
+            return ~0;
+        }
+
+        static IPCThreadState* selfOrNull() {
+            if (selfOrNullFn != nullptr) [[likely]] {
+                return selfOrNullFn();
+            }
+            return nullptr;
+        }
+
+        static void Init(const SandHook::ElfImg *binder) {
+            if (binder == nullptr) {
+                // LOGE("libbinder not found");
+                return;
+            }
+            selfOrNullFn = reinterpret_cast<decltype(selfOrNullFn)>(
+                    binder->getSymbAddress("_ZN7android14IPCThreadState10selfOrNullEv"));
+            getCallingPidFn = reinterpret_cast<decltype(getCallingPidFn)>(
+                    binder->getSymbAddress("_ZNK7android14IPCThreadState13getCallingPidEv"));
+            getCallingUidFn = reinterpret_cast<decltype(getCallingUidFn)>(
+                    binder->getSymbAddress("_ZNK7android14IPCThreadState13getCallingUidEv"));
+            // LOGI("libbinder selfOrNull {} getCallingPid {} getCallingUid {}", (void*) selfOrNullFn, (void*) getCallingPidFn, (void*) getCallingUidFn);
+        }
+    };
+
+    IPCThreadState* (*IPCThreadState::selfOrNullFn)() = nullptr;
+    uid_t (*IPCThreadState::getCallingUidFn)(IPCThreadState*) = nullptr;
+    pid_t (*IPCThreadState::getCallingPidFn)(IPCThreadState*) = nullptr;
 
     jboolean
     Service::exec_transact_replace(jboolean *res, JNIEnv *env, [[maybe_unused]] jobject obj,
@@ -51,26 +95,14 @@ namespace lspd {
             *res = JNI_CallStaticBooleanMethod(env, instance()->bridge_service_class_,
                                                instance()->exec_transact_replace_methodID_,
                                                obj, code, data_obj, reply_obj, flags);
+            if (!*res) {
+                auto self = IPCThreadState::selfOrNull();
+                if (self != nullptr) {
+                    auto id = self->getCallingId();
+                    last_failed_id.store(id, std::memory_order_relaxed);
+                }
+            }
             return true;
-        } else if (SET_ACTIVITY_CONTROLLER_CODE != -1 &&
-                   code == SET_ACTIVITY_CONTROLLER_CODE) [[unlikely]] {
-            va_copy(copy, args);
-            if (instance()->replace_activity_controller_methodID_) {
-                *res = JNI_CallStaticBooleanMethod(env, instance()->bridge_service_class_,
-                                                   instance()->replace_activity_controller_methodID_,
-                                                   obj, code, data_obj, reply_obj, flags);
-            }
-            va_end(copy);
-            // fallback the backup
-        } else if (code == (('_' << 24) | ('C' << 16) | ('M' << 8) | 'D')) {
-            va_copy(copy, args);
-            if (instance()->replace_shell_command_methodID_) {
-                *res = JNI_CallStaticBooleanMethod(env, instance()->bridge_service_class_,
-                                                   instance()->replace_shell_command_methodID_,
-                                                   obj, code, data_obj, reply_obj, flags);
-            }
-            va_end(copy);
-            return *res;
         }
         return false;
     }
@@ -78,7 +110,13 @@ namespace lspd {
     jboolean
     Service::call_boolean_method_va_replace(JNIEnv *env, jobject obj, jmethodID methodId,
                                             va_list args) {
-        if (methodId == instance()->exec_transact_backup_methodID_) [[unlikely]] {
+        bool need_skip = false;
+        if (auto self = IPCThreadState::selfOrNull(); self != nullptr) {
+            auto last = last_failed_id.load(std::memory_order_relaxed);
+            auto current = self->getCallingId();
+            need_skip = last == current;
+        }
+        if (!need_skip && methodId == instance()->exec_transact_backup_methodID_) [[unlikely]] {
             jboolean res = false;
             if (exec_transact_replace(&res, env, obj, args)) [[unlikely]] return res;
             // else fallback to backup
@@ -138,7 +176,7 @@ namespace lspd {
         if (auto parcel_file_descriptor_class = JNI_FindClass(env, "android/os/ParcelFileDescriptor")) {
             parcel_file_descriptor_class_ = JNI_NewGlobalRef(env, parcel_file_descriptor_class);
         } else {
-            LOGE("ParcelFileDescriptor not found");
+            // LOGE("ParcelFileDescriptor not found");
             return;
         }
         detach_fd_method_ = JNI_GetMethodID(env, parcel_file_descriptor_class_, "detachFd", "()I");
@@ -166,7 +204,7 @@ namespace lspd {
                                                                            GetBridgeServiceName()))
             bridge_service_class_ = JNI_NewGlobalRef(env, bridge_service_class);
         else {
-            LOGE("server class not found");
+            // LOGE("server class not found");
             return;
         }
 
@@ -176,23 +214,8 @@ namespace lspd {
                                                                 "execTransact",
                                                                 hooker_sig);
         if (!exec_transact_replace_methodID_) {
-            LOGE("execTransact class not found");
+            // LOGE("execTransact class not found");
             return;
-        }
-
-
-        replace_activity_controller_methodID_ = JNI_GetStaticMethodID(env, bridge_service_class_,
-                                                                      "replaceActivityController",
-                                                                      hooker_sig);
-        if (!replace_activity_controller_methodID_) {
-            LOGE("replaceActivityShell class not found");
-        }
-
-        replace_shell_command_methodID_ = JNI_GetStaticMethodID(env, bridge_service_class_,
-                                                                "replaceShellCommand",
-                                                                hooker_sig);
-        if (!replace_shell_command_methodID_) {
-            LOGE("replaceShellCommand class not found");
         }
 
         auto binder_class = JNI_FindClass(env, "android/os/Binder");
@@ -201,7 +224,7 @@ namespace lspd {
         auto *setTableOverride = SandHook::ElfImg("/libart.so").getSymbAddress<void (*)(JNINativeInterface *)>(
                 "_ZN3art9JNIEnvExt16SetTableOverrideEPK18JNINativeInterface");
         if (!setTableOverride) {
-            LOGE("set table override not found");
+            // LOGE("set table override not found");
         }
         memcpy(&native_interface_replace_, env->functions, sizeof(JNINativeInterface));
 
@@ -221,12 +244,16 @@ namespace lspd {
             }
         }
 
-        LOGD("Done InitService");
+        auto &binder = lspd::GetLibBinder(false);
+        IPCThreadState::Init(binder.get());
+        lspd::GetLibBinder(true);
+
+        // LOGD("Done InitService");
     }
 
     ScopedLocalRef<jobject> Service::RequestBinder(JNIEnv *env, jstring nice_name) {
         if (!initialized_) [[unlikely]] {
-            LOGE("Service not initialized");
+            // LOGE("Service not initialized");
             return {env, nullptr};
         }
 
@@ -234,7 +261,7 @@ namespace lspd {
         auto bridge_service = JNI_CallStaticObjectMethod(env, service_manager_class_,
                                                          get_service_method_, bridge_service_name);
         if (!bridge_service) {
-            LOGD("can't get {}", BRIDGE_SERVICE_NAME);
+            // LOGD("can't get {}", BRIDGE_SERVICE_NAME);
             return {env, nullptr};
         }
 
@@ -270,7 +297,7 @@ namespace lspd {
 
     ScopedLocalRef<jobject> Service::RequestSystemServerBinder(JNIEnv *env) {
         if (!initialized_) [[unlikely]] {
-            LOGE("Service not initialized");
+            // LOGE("Service not initialized");
             return {env, nullptr};
         }
         // Get Binder for LSPSystemServerService.
@@ -281,15 +308,15 @@ namespace lspd {
             binder = JNI_CallStaticObjectMethod(env, service_manager_class_,
                                                 get_service_method_, bridge_service_name);
             if (binder) {
-                LOGD("Got binder for system server");
+                // LOGD("Got binder for system server");
                 break;
             }
-            LOGI("Fail to get binder for system server, try again in 1s");
+            // LOGI("Fail to get binder for system server, try again in 1s");
             using namespace std::chrono_literals;
             std::this_thread::sleep_for(1s);
         }
         if (!binder) {
-            LOGW("Fail to get binder for system server");
+            // LOGW("Fail to get binder for system server");
             return {env, nullptr};
         }
         return binder;
@@ -314,7 +341,7 @@ namespace lspd {
         if (app_binder) {
             JNI_NewGlobalRef(env, heart_beat_binder);
         }
-        LOGD("app_binder: {}", static_cast<void*>(app_binder.get()));
+        // LOGD("app_binder: {}", static_cast<void*>(app_binder.get()));
         return app_binder;
     }
 
@@ -322,13 +349,13 @@ namespace lspd {
         Wrapper wrapper{env, this};
         bool res = wrapper.transact(binder, DEX_TRANSACTION_CODE);
         if (!res) {
-            LOGE("Service::RequestLSPDex: transaction failed?");
+            // LOGE("Service::RequestLSPDex: transaction failed?");
             return {-1, 0};
         }
         auto parcel_fd = JNI_CallObjectMethod(env, wrapper.reply, read_file_descriptor_method_);
         int fd = JNI_CallIntMethod(env, parcel_fd, detach_fd_method_);
         auto size = static_cast<size_t>(JNI_CallLongMethod(env, wrapper.reply, read_long_method_));
-        LOGD("fd={}, size={}", fd, size);
+        // LOGD("fd={}, size={}", fd, size);
         return {fd, size};
     }
 
@@ -339,12 +366,12 @@ namespace lspd {
         bool res = wrapper.transact(binder, OBFUSCATION_MAP_TRANSACTION_CODE);
 
         if (!res) {
-            LOGE("Service::RequestObfuscationMap: transaction failed?");
+            // LOGE("Service::RequestObfuscationMap: transaction failed?");
             return ret;
         }
         auto size = JNI_CallIntMethod(env, wrapper.reply, read_int_method_);
         if (!size || (size & 1) == 1) {
-            LOGW("Service::RequestObfuscationMap: invalid parcel size");
+            // LOGW("Service::RequestObfuscationMap: invalid parcel size");
         }
 
         auto get_string = [this, &wrapper, &env]() -> std::string {
@@ -357,9 +384,9 @@ namespace lspd {
             ret[key] = get_string();
         }
 #ifndef NDEBUG
-        for (const auto &i: ret) {
-            LOGD("{} => {}", i.first, i.second);
-        }
+        // for (const auto &i: ret) {
+        //     LOGD("{} => {}", i.first, i.second);
+        // }
 #endif
 
         return ret;

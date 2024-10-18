@@ -30,12 +30,7 @@ plugins {
 
 val moduleName = "LSPosed"
 val moduleBaseId = "lsposed"
-val authors = "LSPosed Developers"
-
-val riruModuleId = "lsposed"
-val moduleMinRiruApiVersion = 26
-val moduleMinRiruVersionName = "26.1.7"
-val moduleMaxRiruApiVersion = 26
+val authors = "Jing Matrix & LSPosed Developers"
 
 val injectedPackageName: String by rootProject.extra
 val injectedPackageUid: Int by rootProject.extra
@@ -88,15 +83,6 @@ android {
             }
         }
 
-        create("Riru") {
-            dimension = "api"
-            externalNativeBuild {
-                cmake {
-                    arguments += "-DAPI_VERSION=$moduleMaxRiruApiVersion"
-                }
-            }
-        }
-
         create("Zygisk") {
             dimension = "api"
             externalNativeBuild {
@@ -126,6 +112,46 @@ val zipAll = task("zipAll") {
     group = "LSPosed"
 }
 
+val generateWebRoot = tasks.register<Copy>("generateWebRoot") {
+    group = "LSPosed"
+    val webroottmp = File("$projectDir/build/intermediates/generateWebRoot")
+    val webrootsrc = File(webroottmp, "src")
+
+    onlyIf {
+        val os = org.gradle.internal.os.OperatingSystem.current()
+        if (os.isWindows) {
+            exec {
+                commandLine("cmd", "/c", "where", "pnpm")
+                isIgnoreExitValue = true
+            }.exitValue == 0
+        } else {
+            exec {
+                commandLine("which", "pnpm")
+                isIgnoreExitValue = true
+            }.exitValue == 0
+        }
+    }
+
+    doFirst {
+        webroottmp.mkdirs()
+        webrootsrc.mkdirs()
+    }
+
+    from("$projectDir/src/webroot")
+    into(webrootsrc)
+
+    doLast {
+        exec {
+            workingDir = webroottmp
+            commandLine("pnpm", "add", "-D", "parcel-bundler", "kernelsu")
+        }
+        exec {
+            workingDir = webroottmp
+            commandLine("./node_modules/.bin/parcel", "build", "src/index.html")
+        }
+    }
+}
+
 fun afterEval() = android.applicationVariants.forEach { variant ->
     val variantCapped = variant.name.replaceFirstChar { it.uppercase() }
     val variantLowered = variant.name.lowercase()
@@ -145,12 +171,13 @@ fun afterEval() = android.applicationVariants.forEach { variant ->
             "assemble$variantCapped",
             ":app:package$buildTypeCapped",
             ":daemon:package$buildTypeCapped",
-            ":dex2oat:externalNativeBuild${buildTypeCapped}"
+            ":dex2oat:externalNativeBuild${buildTypeCapped}",
+            generateWebRoot
         )
         into(magiskDir)
         from("${rootProject.projectDir}/README.md")
         from("$projectDir/magisk_module") {
-            exclude("riru.sh", "module.prop", "customize.sh", "daemon")
+            exclude("module.prop", "customize.sh", "daemon")
         }
         from("$projectDir/magisk_module") {
             include("module.prop")
@@ -159,10 +186,9 @@ fun afterEval() = android.applicationVariants.forEach { variant ->
                 "versionName" to "v$verName",
                 "versionCode" to verCode,
                 "authorList" to authors,
-                "updateJson" to "https://lsposed.github.io/LSPosed/release/${flavorLowered}.json",
+                "updateJson" to "https://raw.githubusercontent.com/JingMatrix/LSPosed/master/magisk-loader/update/${flavorLowered}.json",
                 "requirement" to when (flavorLowered) {
-                    "riru" -> "Requires Riru $moduleMinRiruVersionName or above installed"
-                    "zygisk" -> "Requires Magisk 24.0+ and Zygisk enabled"
+                    "zygisk" -> "Requires Magisk 26.0+ and Zygisk enabled"
                     else -> "No further requirements"
                 },
                 "api" to flavorCapped,
@@ -178,19 +204,6 @@ fun afterEval() = android.applicationVariants.forEach { variant ->
             filter<ReplaceTokens>("tokens" to tokens)
             filter<FixCrLfFilter>("eol" to FixCrLfFilter.CrLf.newInstance("lf"))
         }
-        if (flavorLowered == "riru") {
-            from("${projectDir}/magisk_module") {
-                include("riru.sh")
-                val tokens = mapOf(
-                    "RIRU_MODULE_LIB_NAME" to "lspd",
-                    "RIRU_MODULE_API_VERSION" to moduleMaxRiruApiVersion.toString(),
-                    "RIRU_MODULE_MIN_API_VERSION" to moduleMinRiruApiVersion.toString(),
-                    "RIRU_MODULE_MIN_RIRU_VERSION_NAME" to moduleMinRiruVersionName,
-                )
-                filter<ReplaceTokens>("tokens" to tokens)
-                filter<FixCrLfFilter>("eol" to FixCrLfFilter.CrLf.newInstance("lf"))
-            }
-        }
         from(project(":app").tasks.getByName("package$buildTypeCapped").outputs) {
             include("*.apk")
             rename(".*\\.apk", "manager.apk")
@@ -200,7 +213,8 @@ fun afterEval() = android.applicationVariants.forEach { variant ->
             rename(".*\\.apk", "daemon.apk")
         }
         into("lib") {
-            from(layout.buildDirectory.dir("intermediates/stripped_native_libs/$variantCapped/out/lib")) {
+            val libDir = variantCapped + "/strip${variantCapped}DebugSymbols"
+            from(layout.buildDirectory.dir("intermediates/stripped_native_libs/$libDir/out/lib")) {
                 include("**/liblspd.so")
             }
         }
@@ -216,6 +230,14 @@ fun afterEval() = android.applicationVariants.forEach { variant ->
         into("framework") {
             from(dexOutPath)
             rename("classes.dex", "lspd.dex")
+        }
+        into("webroot") {
+            if (flavorLowered.startsWith("zygisk")) {
+                from("$projectDir/build/intermediates/generateWebRoot/dist") {
+                    include("**/*.js")
+                    include("**/*.html")
+                }
+            }
         }
 
         val injected = objects.newInstance<Injected>(magiskDir.get().asFile.path)
@@ -303,7 +325,7 @@ val pushDaemonNative = task<Exec>("pushDaemonNative") {
             }
             outputStream.toString().trim()
         }
-        workingDir(project(":daemon").layout.buildDirectory.dir("intermediates/stripped_native_libs/debug/out/lib/$abi"))
+        workingDir(project(":daemon").layout.buildDirectory.dir("intermediates/stripped_native_libs/debug/stripDebugDebugSymbols/out/lib/$abi"))
     }
     commandLine(adb, "push", "libdaemon.so", "/data/local/tmp/libdaemon.so")
 }
