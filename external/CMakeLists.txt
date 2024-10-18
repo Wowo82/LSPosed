@@ -4,8 +4,8 @@ macro(SET_OPTION option value)
     set(${option} ${value} CACHE INTERNAL "" FORCE)
 endmacro()
 
-SET_OPTION(DOBBY_GENERATE_SHARED OFF)
 SET_OPTION(Plugin.SymbolResolver OFF)
+SET_OPTION(FMT_INSTALL OFF)
 
 set(LIBCXX_SOURCES
         algorithm.cpp
@@ -100,10 +100,22 @@ target_compile_options(cxx PRIVATE ${LIBCXX_FLAGS} ${LIBCXXABI_FLAGS} -ffunction
 target_include_directories(cxx PUBLIC ${LIBCXX_EXPORT_INCLUDES})
 target_include_directories(cxx PRIVATE ${LIBCXX_INCLUDES} ${LIBCXXABI_INCLUDES})
 
+set(XZ_SOURCES
+	xz_crc32.c
+	xz_crc64.c
+	# xz_dec_bcj.c
+	xz_dec_lzma2.c
+	xz_dec_stream.c)
+set(XZ_INCLUDES xz-embedded/linux/include/linux xz-embedded/userspace)
+list(TRANSFORM XZ_SOURCES PREPEND xz-embedded/linux/lib/xz/)
+add_library(xz_static STATIC ${XZ_SOURCES})
+target_include_directories(xz_static PRIVATE ${XZ_INCLUDES})
+
 link_libraries(cxx)
 
 OPTION(LSPLANT_BUILD_SHARED OFF)
-add_subdirectory(lsplant/lsplant/src/main/jni)
+OPTION(LSPLT_BUILD_SHARED OFF)
 add_subdirectory(dobby)
 add_subdirectory(fmt)
-target_compile_definitions(fmt-header-only INTERFACE FMT_STATIC_THOUSANDS_SEPARATOR=1 FMT_USE_FLOAT=0 FMT_USE_DOUBLE=0 FMT_USE_LONG_DOUBLE=0)
+add_subdirectory(lsplant/lsplant/src/main/jni)
+target_compile_definitions(fmt-header-only INTERFACE FMT_USE_LOCALE=0 FMT_USE_FLOAT=0 FMT_USE_DOUBLE=0 FMT_USE_LONG_DOUBLE=0 FMT_USE_BITINT=0)

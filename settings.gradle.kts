@@ -26,7 +26,9 @@ dependencyResolutionManagement {
 
 rootProject.name = "LSPosed"
 include(
+    ":apache",
     ":app",
+    ":axml",
     ":core",
     ":daemon",
     ":dex2oat",

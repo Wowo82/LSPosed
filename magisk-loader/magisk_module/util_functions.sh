@@ -21,9 +21,9 @@
 check_magisk_version() {
   ui_print "- Magisk version: $MAGISK_VER_CODE"
   if [ "$FLAVOR" == "riru" ] || [ "$FLAVOR" == "zygisk" ]; then
-    if [ "$MAGISK_VER_CODE" -lt 24000 ]; then
+    if [ "$MAGISK_VER_CODE" -lt 26000 ]; then
       ui_print "*********************************************************"
-      ui_print "! Please install Magisk v24+"
+      ui_print "! Please install Magisk v26+"
       abort    "*********************************************************"
     fi
   else
@@ -37,7 +37,7 @@ require_new_android() {
   ui_print "*********************************************************"
   ui_print "! Unsupported Android version ${1} (below Oreo MR1)"
   ui_print "! Learn more from our GitHub"
-  [ "$BOOTMODE" == "true" ] && am start -a android.intent.action.VIEW -d https://github.com/LSPosed/LSPosed/#supported-versions
+  [ "$BOOTMODE" == "true" ] && am start -a android.intent.action.VIEW -d https://github.com/JingMatrix/LSPosed/#supported-versions
   abort    "*********************************************************"
 }
 

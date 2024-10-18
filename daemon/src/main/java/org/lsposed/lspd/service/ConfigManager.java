@@ -95,6 +95,7 @@ public class ConfigManager {
     private final SQLiteDatabase db = openDb();
 
     private boolean verboseLog = true;
+    private boolean logWatchdog = true;
     private boolean dexObfuscate = true;
     private boolean enableStatusNotification = true;
     private Path miscPath = null;
@@ -202,9 +203,11 @@ public class ConfigManager {
             Log.e(TAG, "skip injecting into android because sepolicy was not loaded properly");
             return true; // skip
         }
+        /*
         try (Cursor cursor = db.query("scope INNER JOIN modules ON scope.mid = modules.mid", new String[]{"modules.mid"}, "app_pkg_name=? AND enabled=1", new String[]{"system"}, null, null, null)) {
             return cursor == null || !cursor.moveToNext();
-        }
+        }*/
+        return false;
     }
 
     @SuppressLint("BlockedPrivateApi")
@@ -263,6 +266,9 @@ public class ConfigManager {
 
         Object bool = config.get("enable_verbose_log");
         verboseLog = bool == null || (boolean) bool;
+
+        bool = config.get("enable_log_watchdog");
+        logWatchdog = bool == null || (boolean) bool;
 
         bool = config.get("enable_dex_obfuscate");
         dexObfuscate = bool == null || (boolean) bool;
@@ -1008,6 +1014,21 @@ public class ConfigManager {
 
     public boolean verboseLog() {
         return BuildConfig.DEBUG || verboseLog;
+    }
+
+    public void setLogWatchdog(boolean on) {
+        var logcatService = ServiceManager.getLogcatService();
+        if (on) {
+            logcatService.enableWatchdog();
+        } else {
+            logcatService.disableWatchdog();
+        }
+        updateModulePrefs("lspd", 0, "config", "enable_log_watchdog", on);
+        logWatchdog = on;
+    }
+
+    public boolean isLogWatchdogEnabled() {
+        return logWatchdog;
     }
 
     public void setDexObfuscate(boolean on) {
