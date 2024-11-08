@@ -112,46 +112,6 @@ val zipAll = task("zipAll") {
     group = "LSPosed"
 }
 
-val generateWebRoot = tasks.register<Copy>("generateWebRoot") {
-    group = "LSPosed"
-    val webroottmp = File("$projectDir/build/intermediates/generateWebRoot")
-    val webrootsrc = File(webroottmp, "src")
-
-    onlyIf {
-        val os = org.gradle.internal.os.OperatingSystem.current()
-        if (os.isWindows) {
-            exec {
-                commandLine("cmd", "/c", "where", "pnpm")
-                isIgnoreExitValue = true
-            }.exitValue == 0
-        } else {
-            exec {
-                commandLine("which", "pnpm")
-                isIgnoreExitValue = true
-            }.exitValue == 0
-        }
-    }
-
-    doFirst {
-        webroottmp.mkdirs()
-        webrootsrc.mkdirs()
-    }
-
-    from("$projectDir/src/webroot")
-    into(webrootsrc)
-
-    doLast {
-        exec {
-            workingDir = webroottmp
-            commandLine("pnpm", "add", "-D", "parcel-bundler", "kernelsu")
-        }
-        exec {
-            workingDir = webroottmp
-            commandLine("./node_modules/.bin/parcel", "build", "src/index.html")
-        }
-    }
-}
-
 fun afterEval() = android.applicationVariants.forEach { variant ->
     val variantCapped = variant.name.replaceFirstChar { it.uppercase() }
     val variantLowered = variant.name.lowercase()
@@ -171,13 +131,12 @@ fun afterEval() = android.applicationVariants.forEach { variant ->
             "assemble$variantCapped",
             ":app:package$buildTypeCapped",
             ":daemon:package$buildTypeCapped",
-            ":dex2oat:externalNativeBuild${buildTypeCapped}",
-            generateWebRoot
+            ":dex2oat:externalNativeBuild${buildTypeCapped}"
         )
         into(magiskDir)
         from("${rootProject.projectDir}/README.md")
         from("$projectDir/magisk_module") {
-            exclude("module.prop", "customize.sh", "daemon")
+            exclude("module.prop", "action.sh", "customize.sh", "daemon")
         }
         from("$projectDir/magisk_module") {
             include("module.prop")
@@ -193,6 +152,15 @@ fun afterEval() = android.applicationVariants.forEach { variant ->
                 },
                 "api" to flavorCapped,
             )
+            filter<FixCrLfFilter>("eol" to FixCrLfFilter.CrLf.newInstance("lf"))
+        }
+        from("$projectDir/magisk_module") {
+            include("action.sh")
+            val tokens = mapOf(
+                "DEFAULT_MANAGER_PACKAGE_NAME" to defaultManagerPackageName,
+                "INJECTED_PACKAGE_NAME" to injectedPackageName,
+            )
+            filter<ReplaceTokens>("tokens" to tokens)
             filter<FixCrLfFilter>("eol" to FixCrLfFilter.CrLf.newInstance("lf"))
         }
         from("$projectDir/magisk_module") {
@@ -230,14 +198,6 @@ fun afterEval() = android.applicationVariants.forEach { variant ->
         into("framework") {
             from(dexOutPath)
             rename("classes.dex", "lspd.dex")
-        }
-        into("webroot") {
-            if (flavorLowered.startsWith("zygisk")) {
-                from("$projectDir/build/intermediates/generateWebRoot/dist") {
-                    include("**/*.js")
-                    include("**/*.html")
-                }
-            }
         }
 
         val injected = objects.newInstance<Injected>(magiskDir.get().asFile.path)
